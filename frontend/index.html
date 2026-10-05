@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo de Productos</title>
+<style>
+  :root{--bg:#f5f6fa;--card:#fff;--ink:#1d2433;--mut:#6b7280;--acc:#4f46e5;--ok:#16a34a;--bad:#dc2626;--line:#e5e7eb}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--acc);color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px}
+  main{max-width:900px;margin:24px auto;padding:0 16px;display:grid;gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input{padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;flex:1;min-width:120px}
+  button{padding:8px 14px;border:0;border-radius:6px;background:var(--acc);color:#fff;font-size:14px;cursor:pointer}
+  button.sec{background:#e5e7eb;color:var(--ink)}
+  button.del{background:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
+  .badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:600}
+  .rapido{background:#dcfce7;color:var(--ok)}
+  .lento{background:#fee2e2;color:var(--bad)}
+  #msg{font-size:13px;min-height:18px;margin-top:8px}
+  .error{color:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Catálogo de Productos</h1>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <button id="btnListar">Cargar productos</button>
+      <input id="idBuscar" type="number" min="1" placeholder="ID" aria-label="ID del producto" style="max-width:100px;flex:none">
+      <button class="sec" id="btnBuscar">Buscar por ID</button>
+      <span id="tiempo"></span>
+    </div>
+    <div id="msg"></div>
+  </section>
+
+  <section class="card">
+    <table>
+      <thead><tr><th>ID</th><th>Nombre</th><th>Categoría</th><th>Precio</th><th></th></tr></thead>
+      <tbody id="tbody"><tr><td colspan="5" style="color:var(--mut)">Sin datos cargados</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-top:0" id="formTitulo">Nuevo producto</h3>
+    <div class="row">
+      <input id="nombre" placeholder="Nombre" aria-label="Nombre">
+      <input id="categoria" placeholder="Categoría" aria-label="Categoría">
+      <input id="precio" type="number" step="0.01" min="0" placeholder="Precio" aria-label="Precio">
+      <button id="btnGuardar">Guardar</button>
+      <button class="sec" id="btnCancelar" style="display:none">Cancelar</button>
+    </div>
+  </section>
+</main>
+
+<script>
+  const API = 'http://localhost:8080/api/productos';
+  const el = id => document.getElementById(id);
+  let editandoId = null;
+
+  function aviso(texto, esError) {
+    el('msg').textContent = texto || '';
+    el('msg').className = esError ? 'error' : '';
+  }
+
+  function mostrarTiempo(ms) {
+    el('tiempo').innerHTML = `<span class="badge ${ms > 500 ? 'lento' : 'rapido'}">${ms} ms</span>`;
+  }
+
+  async function llamar(url, opciones) {
+    const inicio = performance.now();
+    let res;
+    try {
+      res = await fetch(url, opciones);
+    } catch (e) {
+      throw new Error('No se pudo conectar con el servidor.');
+    }
+    mostrarTiempo(Math.round(performance.now() - inicio));
+    if (!res.ok) {
+      let detalle = res.statusText;
+      try { detalle = (await res.json()).error || detalle; } catch (_) {}
+      throw new Error(`Error ${res.status}: ${detalle}`);
+    }
+    return res.status === 204 ? null : res.json();
+  }
+
+  function escapar(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function pintar(lista) {
+    el('tbody').innerHTML = lista.length
+      ? lista.map(p => `
+        <tr>
+          <td>${p.id}</td><td>${escapar(p.nombre)}</td><td>${escapar(p.categoria)}</td><td>$${p.precio.toFixed(2)}</td>
+          <td style="text-align:right">
+            <button class="sec" onclick="editar(${p.id})">Editar</button>
+            <button class="del" onclick="borrar(${p.id})">Borrar</button>
+          </td>
+        </tr>`).join('')
+      : '<tr><td colspan="5" style="color:var(--mut)">Sin productos</td></tr>';
+  }
+
+  async function listar() {
+    aviso('Cargando...');
+    try { pintar(await llamar(API)); aviso(''); } catch (e) { aviso(e.message, true); }
+  }
+
+  async function buscar() {
+    const id = el('idBuscar').value;
+    if (!id) return aviso('Ingrese un ID', true);
+    aviso('Buscando...');
+    try { pintar([await llamar(`${API}/${id}`)]); aviso(''); } catch (e) { aviso(e.message, true); }
+  }
+
+  async function editar(id) {
+    try {
+      const p = await llamar(`${API}/${id}`);
+      editandoId = id;
+      el('nombre').value = p.nombre;
+      el('categoria').value = p.categoria;
+      el('precio').value = p.precio;
+      el('formTitulo').textContent = 'Editar producto #' + id;
+      el('btnCancelar').style.display = '';
+    } catch (e) { aviso(e.message, true); }
+  }
+
+  function cancelar() {
+    editandoId = null;
+    ['nombre', 'categoria', 'precio'].forEach(i => el(i).value = '');
+    el('formTitulo').textContent = 'Nuevo producto';
+    el('btnCancelar').style.display = 'none';
+  }
+
+  async function guardar() {
+    const body = JSON.stringify({
+      nombre: el('nombre').value,
+      categoria: el('categoria').value,
+      precio: parseFloat(el('precio').value)
+    });
+    const url = editandoId ? `${API}/${editandoId}` : API;
+    try {
+      await llamar(url, { method: editandoId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      cancelar();
+      await listar();
+    } catch (e) { aviso(e.message, true); }
+  }
+
+  async function borrar(id) {
+    if (!confirm('¿Eliminar el producto #' + id + '?')) return;
+    try { await llamar(`${API}/${id}`, { method: 'DELETE' }); await listar(); } catch (e) { aviso(e.message, true); }
+  }
+
+  el('btnListar').onclick = listar;
+  el('btnBuscar').onclick = buscar;
+  el('btnGuardar').onclick = guardar;
+  el('btnCancelar').onclick = cancelar;
+</script>
+</body>
+</html>
